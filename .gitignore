@@ -1,0 +1,4 @@
+target/*
+.openshiftio/*
+.vscode/*
+*.jar
