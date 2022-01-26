@@ -1,0 +1,46 @@
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  labels:
+    app: greetings-service
+    provider: jkube
+    group: ${project.groupId}
+  name: greetings-service
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    app: greetings-service
+    provider: jkube
+    group: ${project.groupId}
+  strategy:
+    rollingParams:
+      timeoutSeconds: 3600
+    type: Rolling
+  template:
+    metadata:
+      labels:
+        app: greetings-service
+        provider: jkube
+        group: ${project.groupId}
+    spec:
+      volumes:
+      - name: config-volume
+        configMap:
+          name: greetings-service
+      containers:
+      - name: greetings-service
+        volumeMounts:
+          - name: config-volume
+            mountPath: /deployments/application.properties
+            subPath: application.properties
+  triggers:
+  - type: ConfigChange
+  - imageChangeParams:
+      automatic: true
+      containerNames:
+      - greetings-service
+      from:
+        kind: ImageStreamTag
+        name: greetings-service:${project.version}
+    type: ImageChange

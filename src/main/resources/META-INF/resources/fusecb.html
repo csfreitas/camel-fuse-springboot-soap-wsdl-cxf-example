@@ -1,0 +1,91 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+	<title>Circuit Breaker - Red Hat Fuse</title>
+	<link rel="stylesheet"
+		  href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"
+		  integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u"
+		  crossorigin="anonymous">
+</head>
+<body>
+	<div class="container">
+
+	<div>
+		<h1>Circuit Breaker - Red Hat Fuse</h1>
+		<p class="lead">
+			Your cloud application can include many services, with many interactions between the services.
+			In case a service fails or is unavailable, you can provide an alternative response - a circuit breaker - that handles the error condition without increasing service load. A circuit breaker can quickly and easily determine that a service is not functioning properly and then can either return a default result or a quick and graceful fail notice with detailed information about the failure. 
+		</p>
+		<p class="lead">
+			When you open this page, it invokes the Greeting Service (which is backed by Apache Camel). This Greeting Service invokes a name service. The invocations are protected by a circuit breaker that uses the <strong>camel-hystrix</strong> component.
+		
+		<p class="lead">
+		        To monitor the state of the circuit breaker, you can use the
+			<a class="btn btn-default" href="/monitor/monitor.html?stream=/hystrix.stream&title=greetings-service" target="_blank">Hystrix Monitor dashboard</a>.
+		</p>
+	</p>
+		<p class="lead">
+		You can stop, start, and clear the calls to the Greeting Service on this page. 
+	</p>
+	
+		<p class="lead">To demonstrate the behavior of the circuit breaker when a service becomes unavailable:
+			
+		<ul class="lead">
+		    <li>Stop the name service:
+					<p>For OpenShift deployments, in the web console, downscale the name service pod number to 0. </p>
+				  <p>For a standalone deployment, press <b>Ctrl+C</b> while in the window of the shell prompt where the name
+service is running.</p>
+					</li>
+		    <li>Observe the changes below in the Greeting Service output and in the Hystrix Monitor dashboard. </li>
+	       </ul>
+			</p>
+
+		<div class="row">
+			<h2>Greeting Service</h2>
+			<form class="form-inline">
+				<button id="stop" type="submit" class="btn btn-primary">Stop</button>
+				<button id="start" type="submit" class="btn btn-primary">Start</button>
+				<button id="clear" type="submit" class="btn btn-success">Clear</button>
+			</form>
+			<h3>Results:</h3>
+			<pre style="min-height:20em;"><code id="greetings-result"></code></pre>
+		</div>
+
+	</div>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+	<script>
+        $(document).ready(function() {
+            var started=true;
+            function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+            async function callGreetingsService() {
+                while (started) {
+                    $.getJSON("/camel/greetings", function (res) {
+                        $("#greetings-result").prepend(JSON.stringify(res) + "\n");
+                    });
+                    await sleep(1000);
+                }
+            }
+            $("#clear").click(function(e) {
+                $("#greetings-result").html("");
+                e.preventDefault();
+            });
+            $("#start").click(async function(e) {
+                started=false;
+                await sleep(1000);
+                started=true;
+                e.preventDefault();
+                callGreetingsService();
+            });
+            $("#stop").click(function(e) {
+                started=false;
+                e.preventDefault();
+            });
+            callGreetingsService();
+        });
+	</script>
+</div>
+</body>
+</html>

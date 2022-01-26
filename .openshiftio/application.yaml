@@ -1,0 +1,257 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: launchpad-builder-greeting-service
+  annotations:
+    description: This template creates a Build Configuration using an S2I builder.
+    tags: instant-app
+parameters:
+- name: SOURCE_REPOSITORY_URL
+  description: The source URL for the application
+  displayName: Source URL
+  required: true
+- name: SOURCE_REPOSITORY_REF
+  description: The branch name for the application
+  displayName: Source Branch
+  value: master
+  required: true
+- name: SOURCE_REPOSITORY_DIR
+  description: The location within the source repo of the application
+  displayName: Source Directory
+  value: .
+  required: true
+- name: ARTIFACT_COPY_ARGS
+  description: Syntax to be used to copy uberjar files to the target directory
+  displayName: Copy Args
+  value: '*.jar'
+  required: true
+- name: GITHUB_WEBHOOK_SECRET
+  description: A secret string used to configure the GitHub webhook.
+  displayName: GitHub Webhook Secret
+  required: true
+  from: '[a-zA-Z0-9]{40}'
+  generate: expression
+- name: MAVEN_MIRROR_URL
+  description: Maven Nexus Repository to be used during build phase
+  displayName:
+  required: false
+- name: BUILDER_IMAGE_NAME
+  description: Name of the image to use as a builder image
+  displayName: Builder Image Name
+  value: 'registry.access.redhat.com/fuse7/fuse-java-openshift:1.6'
+  required: true
+objects:
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: greetings-service-config
+  data:
+    application.properties: |-
+      server.port=8080
+      management.endpoints.web.base-path=/
+
+      nameService.host=${NAME_SERVICE_SERVICE_HOST}
+      nameService.port=${NAME_SERVICE_SERVICE_PORT}
+
+      # configure hystrix
+      # when we have more than 5 requests per 10 seconds that 50%+ fails
+      # then open circuit and call fallback immediately
+      camel.hystrix.circuit-breaker-request-volume-threshold=5
+      camel.hystrix.circuit-breaker-error-threshold-percentage=50
+      camel.hystrix.metrics-rolling-percentile-window-in-milliseconds=10000
+
+      # disable hystrix default mapping see com.redhat.fuse.boosters.cb.Application comments
+      camel.component.hystrix.mapping.enabled=false
+
+      # hystrix logging
+      #logging.level.org.apache.camel.component.hystrix.processor=DEBUG
+
+      # disable health defaults
+      management.health.defaults.enabled=false
+      
+      camel.health.enabled=false
+      camel.health.indicator.enabled=true
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: fuse-java-openshift
+  spec:
+    tags:
+    - name: "1.0"
+      annotations:
+        description: Fabric8 Java S2I images.
+        iconClass: icon-jboss
+        supports: 'jboss-fuse:7,java:8,xpaas:1.2'
+        tags: 'builder,jboss-fuse,java,xpaas,hidden'
+        version: '1.0'
+      from:
+        kind: DockerImage
+        name: ${BUILDER_IMAGE_NAME}
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: greetings-service
+  spec: {}
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    name: greetings-service
+    labels:
+      app: fuse-circuit-breaker-mission-greetings-service
+      group: com.redhat.fuse.boosters
+      provider: jkube
+  spec:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: greetings-service:latest
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
+    source:
+      git:
+        uri: ${SOURCE_REPOSITORY_URL}
+        ref: ${SOURCE_REPOSITORY_REF}
+        #contextDir: ${SOURCE_REPOSITORY_DIR}
+      type: Git
+    strategy:
+      sourceStrategy:
+        env:
+          - name: BUILD_LOGLEVEL
+            value: '5'
+          - name: MAVEN_ARGS_APPEND
+            value: "-pl ${SOURCE_REPOSITORY_DIR}"
+          - name: ARTIFACT_DIR
+            value: "${SOURCE_REPOSITORY_DIR}/target"
+          - name: MAVEN_MIRROR_URL
+            value: "${MAVEN_MIRROR_URL}"
+          - name: ARTIFACT_COPY_ARGS
+            value: "${ARTIFACT_COPY_ARGS}"
+        forcePull: true
+        from:
+          kind: ImageStreamTag
+          name: fuse-java-openshift:1.0
+        incremental: true
+      type: Source
+    triggers:
+    - github:
+        secret: ${GITHUB_WEBHOOK_SECRET}
+      type: GitHub
+    - type: ConfigChange
+    - imageChange: {}
+      type: ImageChange
+  status:
+    lastVersion: 0
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      prometheus.io/port: "9779"
+      prometheus.io/scrape: "true"
+    labels:
+      expose: "true"
+      app: fuse-circuit-breaker-mission-greetings-service
+      provider: jkube
+      group: com.redhat.fuse.boosters
+    name: greetings-service
+  spec:
+    ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+    selector:
+      app: fuse-circuit-breaker-mission-greetings-service
+      provider: jkube
+      group: com.redhat.fuse.boosters
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: fuse-circuit-breaker-mission-greetings-service
+      provider: jkube
+      group: com.redhat.fuse.boosters
+    name: greetings-service
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 2
+    selector:
+      app: fuse-circuit-breaker-mission-greetings-service
+      provider: jkube
+      group: com.redhat.fuse.boosters
+    strategy:
+      rollingParams:
+        timeoutSeconds: 3600
+      type: Rolling
+    template:
+      metadata:
+        labels:
+          app: fuse-circuit-breaker-mission-greetings-service
+          provider: jkube
+          group: com.redhat.fuse.boosters
+      spec:
+        volumes:
+        - name: config-volume
+          configMap:
+            name: greetings-service-config
+        containers:
+        - env:
+          - name: KUBERNETES_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          image: greetings-service:latest
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 180
+          name: greetings-service
+          volumeMounts:
+            - name: config-volume
+              mountPath: /deployments/application.properties
+              subPath: application.properties
+          ports:
+          - containerPort: 8080
+            name: http
+            protocol: TCP
+          - containerPort: 9779
+            name: prometheus
+            protocol: TCP
+          - containerPort: 8778
+            name: jolokia
+            protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 10
+          securityContext:
+            privileged: false
+    triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - greetings-service
+        from:
+          kind: ImageStreamTag
+          name: greetings-service:latest
+      type: ImageChange
+- apiVersion: v1
+  kind: Route
+  metadata:
+    labels:
+      app: fuse-circuit-breaker-mission-greetings-service
+      provider: jkube
+      group: com.redhat.fuse.boosters
+    name: greetings-service
+  spec:
+    port:
+      targetPort: 8080
+    to:
+      kind: Service
+      name: greetings-service
