@@ -19,14 +19,6 @@ public class CXFSoapEndpointConfiguration {
     @Autowired
     private Bus bus;
 
-    // @Bean
-    // @Scope(value = ConfigurableBeanFactory.SCOPE_SINGLETON)
-    // public ServletRegistrationBean dispatcherServlet() {
-    //     ServletRegistrationBean servlet = new ServletRegistrationBean(new CXFServlet(), "/services/*");
-    //     servlet.setName("CXFServlet");
-    //     return servlet;
-    // }
-
     @Bean
     @Scope(value = ConfigurableBeanFactory.SCOPE_SINGLETON)
     public CxfEndpoint helloEndpoint() {
